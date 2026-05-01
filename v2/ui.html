@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design Inspector</title>
+<style>
+  /* ─── Сброс и базовые переменные ─────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #1e1e1e;
+    --bg2: #2a2a2a;
+    --bg3: #333;
+    --border: #444;
+    --text: #e8e8e8;
+    --text2: #aaa;
+    --accent: #7C6CF2;
+    --accent-hover: #9588f5;
+    --success: #4caf7d;
+    --error: #e05c5c;
+    --warn: #e0a84b;
+    --radius: 8px;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.5;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ─── Шапка ──────────────────────────────────────────────── */
+  .header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .header h1 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+  }
+  .header p {
+    color: var(--text2);
+    font-size: 11.5px;
+    margin-top: 3px;
+  }
+
+  /* ─── Основная зона ──────────────────────────────────────── */
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* ─── Статус-плашка ──────────────────────────────────────── */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    min-height: 40px;
+    font-size: 12px;
+    color: var(--text2);
+    transition: border-color .2s, background .2s;
+  }
+  .status-bar.success { border-color: var(--success); background: rgba(76,175,125,.08); color: var(--success); }
+  .status-bar.error   { border-color: var(--error);   background: rgba(224,92,92,.08);  color: var(--error); }
+  .status-bar.loading { border-color: var(--accent);  background: rgba(124,108,242,.08); color: var(--accent); }
+
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+  .status-dot.spin {
+    background: transparent;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── Инфо-карточки ──────────────────────────────────────── */
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .info-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+  }
+  .info-card .label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: .6px; }
+  .info-card .value { font-size: 18px; font-weight: 600; margin-top: 3px; color: var(--text); }
+  .info-card .value.small { font-size: 13px; font-weight: 500; margin-top: 4px; }
+
+  /* ─── JSON превью ────────────────────────────────────────── */
+  .json-preview {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .json-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text2);
+  }
+  .json-body {
+    padding: 10px 12px;
+    font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+    font-size: 10.5px;
+    line-height: 1.6;
+    color: #9cdcfe;
+    max-height: 130px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    user-select: all;
+  }
+
+  /* ─── Кнопки ─────────────────────────────────────────────── */
+  .btn-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 11px 16px;
+    border-radius: var(--radius);
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background .15s, opacity .15s, transform .1s;
+    font-family: var(--font);
+  }
+  .btn:active { transform: scale(.98); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+  .btn-secondary {
+    background: var(--bg3);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover:not(:disabled) { background: #3d3d3d; }
+
+  .btn-success {
+    background: rgba(76,175,125,.15);
+    color: var(--success);
+    border: 1px solid rgba(76,175,125,.3);
+  }
+
+  /* ─── Иконки (SVG inline) ────────────────────────────────── */
+  .icon { width: 15px; height: 15px; flex-shrink: 0; }
+
+  /* ─── Подвал ─────────────────────────────────────────────── */
+  .footer {
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .footer-note { font-size: 10.5px; color: var(--text2); }
+  .close-btn {
+    background: none; border: none; color: var(--text2);
+    cursor: pointer; font-size: 11.5px; padding: 4px 8px;
+    border-radius: 4px; font-family: var(--font);
+  }
+  .close-btn:hover { background: var(--bg3); color: var(--text); }
+
+  /* ─── Кнопка отправки на сервер ─────────────────────────────── */
+  .btn-send {
+    background: linear-gradient(135deg, #7C6CF2, #5b8af5);
+    color: #fff;
+    border: none;
+  }
+  .btn-send:hover:not(:disabled) { opacity: 0.88; }
+
+  /* ─── Блок результата сервера ────────────────────────────────── */
+  .server-result {
+    background: var(--bg2);
+    border: 1px solid #7C6CF2;
+    border-radius: var(--radius);
+    overflow: hidden;
+    flex-shrink: 0;
+    margin-top: 4px;
+  }
+  .sr-header {
+    font-size: 10px; font-weight: 500; text-transform: uppercase;
+    letter-spacing: .6px; color: var(--text2);
+    padding: 7px 12px; border-bottom: 1px solid var(--border);
+  }
+  .sr-body {
+    padding: 10px 12px; font-size: 12px; line-height: 1.6;
+    color: #c8e6c9; white-space: pre-wrap; word-break: break-word;
+    max-height: 140px; overflow-y: auto;
+  }
+  .sr-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 12px; border-top: 1px solid var(--border); font-size: 11px;
+  }
+  .sr-chars { color: var(--text2); }
+  .sr-link {
+    color: #7C6CF2; text-decoration: none; font-weight: 500;
+  }
+  .sr-link:hover { text-decoration: underline; }
+
+  /* ─── Скроллбар ──────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- Шапка -->
+<div class="header">
+  <h1>Design Inspector</h1>
+  <p>Собирает JSON структуры макета для анализа LLM</p>
+</div>
+
+<!-- Основной контент -->
+<div class="content" id="content">
+
+  <!-- Статус -->
+  <div class="status-bar" id="statusBar">
+    <span class="status-dot"></span>
+    <span id="statusText">Готов к работе. Нажмите «Проверить».</span>
+  </div>
+
+  <!-- Карточки с метриками (скрыты до результата) -->
+  <div class="info-grid" id="infoGrid" style="display:none">
+    <div class="info-card">
+      <div class="label">Нод найдено</div>
+      <div class="value" id="nodeCount">—</div>
+    </div>
+    <div class="info-card">
+      <div class="label">Источник</div>
+      <div class="value small" id="sourceLabel">—</div>
+    </div>
+    <div class="info-card">
+      <div class="label">Размер JSON</div>
+      <div class="value small" id="jsonSize">—</div>
+    </div>
+    <div class="info-card">
+      <div class="label">Символов</div>
+      <div class="value" id="charCount">—</div>
+    </div>
+  </div>
+
+  <!-- JSON превью (скрыт до результата) -->
+  <div class="json-preview" id="jsonPreview" style="display:none">
+    <div class="json-header">
+      <span>Превью JSON</span>
+      <span id="previewNote">первые 500 символов</span>
+    </div>
+    <div class="json-body" id="jsonBody"></div>
+  </div>
+
+  <!-- Кнопки -->
+  <div class="btn-group" id="btnGroup">
+    <button class="btn btn-primary" id="btnInspect" onclick="startInspect()">
+      <svg class="icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M10.5 10.5L13.5 13.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      Проверить
+    </button>
+  </div>
+
+</div>
+
+<!-- Подвал -->
+<div class="footer">
+  <span class="footer-note" id="footerNote">v1.0.0 · Шаг 1 из 4</span>
+  <button class="close-btn" onclick="closePlugin()">Закрыть</button>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+// ▼▼▼  КОНФИГУРАЦИЯ СЕРВЕРА — менять только здесь  ▼▼▼
+// ════════════════════════════════════════════════════════════════════════════
+const SERVER_URL = 'https://YOUR-PROJECT.vercel.app';
+// Примеры:
+//   const SERVER_URL = 'https://pixso-inspector.vercel.app';   // продакшн
+//   const SERVER_URL = 'http://localhost:3000';                 // локальная разработка
+// ════════════════════════════════════════════════════════════════════════════
+
+// ─── Состояние ────────────────────────────────────────────────────────────────
+let currentJson = null;
+let isBusy = false;
+let lastResultUrl = null;
+
+// ─── Утилиты ──────────────────────────────────────────────────────────────────
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+}
+
+function formatNumber(n) {
+  return n.toLocaleString('ru-RU');
+}
+
+function setStatus(text, type) {
+  // type: '' | 'loading' | 'success' | 'error'
+  const bar = document.getElementById('statusBar');
+  const dot = bar.querySelector('.status-dot');
+  const label = document.getElementById('statusText');
+
+  bar.className = 'status-bar ' + (type || '');
+  dot.className = 'status-dot ' + (type === 'loading' ? 'spin' : '');
+  label.textContent = text;
+}
+
+function setBusy(busy) {
+  isBusy = busy;
+  document.getElementById('btnInspect').disabled = busy;
+}
+
+function showResults(json, nodeCount, source) {
+  currentJson = json;
+  const bytes = new TextEncoder().encode(json).length;
+  const chars = json.length;
+
+  // Карточки
+  document.getElementById('infoGrid').style.display = 'grid';
+  document.getElementById('nodeCount').textContent = nodeCount;
+  document.getElementById('sourceLabel').textContent =
+    source === 'selection' ? 'Выделение' : 'Вся страница';
+  document.getElementById('jsonSize').textContent = formatBytes(bytes);
+  document.getElementById('charCount').textContent = formatNumber(chars);
+
+  // Превью
+  document.getElementById('jsonPreview').style.display = 'block';
+  document.getElementById('jsonBody').textContent = json.slice(0, 600) + (json.length > 600 ? '\n...' : '');
+
+  // Кнопки — добавляем «Скопировать», «Отправить на сервер»
+  const group = document.getElementById('btnGroup');
+  group.innerHTML = `
+    <button class="btn btn-primary" id="btnInspect" onclick="startInspect()">
+      <svg class="icon" viewBox="0 0 16 16" fill="none">
+        <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M10.5 10.5L13.5 13.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      Проверить снова
+    </button>
+    <button class="btn btn-send" id="btnSend" onclick="sendToServer()">
+      <svg class="icon" viewBox="0 0 16 16" fill="none">
+        <path d="M2 8h12M9 3l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Отправить на сервер и анализировать
+    </button>
+    <button class="btn btn-secondary" id="btnCopy" onclick="copyToClipboard()">
+      <svg class="icon" viewBox="0 0 16 16" fill="none">
+        <rect x="5.5" y="5.5" width="8" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M3.5 10.5H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h6.5a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      Скопировать JSON в буфер
+    </button>
+  `;
+
+  // Блок результата сервера (скрыт до отправки)
+  if (!document.getElementById('serverResult')) {
+    const sr = document.createElement('div');
+    sr.id = 'serverResult';
+    sr.style.display = 'none';
+    sr.className = 'server-result';
+    group.parentNode.insertBefore(sr, group.nextSibling);
+  }
+
+  if (isBusy) setBusy(false);
+}
+
+// ─── Команды ──────────────────────────────────────────────────────────────────
+
+function startInspect() {
+  if (isBusy) return;
+  setBusy(true);
+  setStatus('Передаю запрос в sandbox...', 'loading');
+  currentJson = null;
+
+  // Скрываем старые результаты
+  document.getElementById('infoGrid').style.display = 'none';
+  document.getElementById('jsonPreview').style.display = 'none';
+
+  parent.postMessage({ pluginMessage: { type: 'START_INSPECT' } }, '*');
+}
+
+async function copyToClipboard() {
+  if (!currentJson) return;
+
+  const btn = document.getElementById('btnCopy');
+  try {
+    await navigator.clipboard.writeText(currentJson);
+    btn.className = 'btn btn-success';
+    btn.innerHTML = `
+      <svg class="icon" viewBox="0 0 16 16" fill="none">
+        <path d="M3 8l4 4 6-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Скопировано!
+    `;
+    setStatus('JSON скопирован в буфер обмена (' + formatNumber(currentJson.length) + ' символов)', 'success');
+
+    setTimeout(() => {
+      btn.className = 'btn btn-secondary';
+      btn.innerHTML = `
+        <svg class="icon" viewBox="0 0 16 16" fill="none">
+          <rect x="5.5" y="5.5" width="8" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M3.5 10.5H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h6.5a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        Скопировать JSON в буфер
+      `;
+    }, 2500);
+  } catch (err) {
+    // Fallback: textarea + execCommand (для старых окружений)
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = currentJson;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+
+      btn.className = 'btn btn-success';
+      btn.textContent = 'Скопировано (fallback)';
+      setStatus('JSON скопирован (через fallback)', 'success');
+      setTimeout(() => {
+        btn.className = 'btn btn-secondary';
+        btn.textContent = 'Скопировать JSON в буфер';
+      }, 2500);
+    } catch (e) {
+      setStatus('Ошибка копирования: ' + e.message, 'error');
+    }
+  }
+}
+
+async function sendToServer() {
+  if (!currentJson || isBusy) return;
+
+  const btn = document.getElementById('btnSend');
+  const sr  = document.getElementById('serverResult');
+
+  // Проверяем что адрес сервера задан
+  if (SERVER_URL.includes('YOUR-PROJECT')) {
+    setStatus('Укажите SERVER_URL в коде плагина (ui.html, первые строки скрипта)', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Отправляю...';
+  setStatus('Отправляю JSON на сервер...', 'loading');
+  lastResultUrl = null;
+
+  try {
+    const response = await fetch(SERVER_URL + '/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: currentJson
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error('Сервер вернул ' + response.status + ': ' + errText.slice(0, 200));
+    }
+
+    const data = await response.json();
+    lastResultUrl = data.resultUrl;
+
+    // Показываем результат
+    setStatus('Ответ агента получен!', 'success');
+    sr.style.display = 'block';
+    sr.innerHTML = `
+      <div class="sr-header">Ответ LLM-агента</div>
+      <div class="sr-body">${escapeHtml(data.agentResponse)}</div>
+      <div class="sr-footer">
+        <span class="sr-chars">${data.charCount.toLocaleString('ru-RU')} символов</span>
+        <a class="sr-link" href="${escapeHtml(data.resultUrl)}" target="_blank" rel="noopener">
+          Открыть результат ↗
+        </a>
+      </div>
+    `;
+
+    btn.disabled = false;
+    btn.innerHTML = `
+      <svg class="icon" viewBox="0 0 16 16" fill="none">
+        <path d="M3 8l4 4 6-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Отправить снова
+    `;
+
+  } catch (err) {
+    setStatus('Ошибка отправки: ' + err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Отправить на сервер и анализировать';
+  }
+}
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function closePlugin() {
+  parent.postMessage({ pluginMessage: { type: 'CLOSE' } }, '*');
+}
+
+// ─── Приём сообщений от sandbox.js ───────────────────────────────────────────
+
+window.onmessage = function (event) {
+  const msg = event.data.pluginMessage;
+  if (!msg) return;
+
+  switch (msg.type) {
+
+    case 'STATUS':
+      setStatus(msg.text, 'loading');
+      break;
+
+    case 'JSON_READY':
+      setStatus(
+        'Готово! ' + msg.nodeCount + ' нод(ы) из ' +
+        (msg.source === 'selection' ? 'выделения' : 'страницы') + '.',
+        'success'
+      );
+      showResults(msg.json, msg.nodeCount, msg.source);
+      break;
+
+    case 'ERROR':
+      setStatus('Ошибка: ' + msg.text, 'error');
+      setBusy(false);
+      break;
+  }
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "pixso-design-inspector-server",
+  "version": "1.0.0",
+  "description": "LLM-агент для анализа дизайн-макетов Pixso",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "vercel dev"
+  },
+  "devDependencies": {
+    "vercel": "^37.0.0"
+  }
+}
