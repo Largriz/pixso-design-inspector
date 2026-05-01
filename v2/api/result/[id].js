@@ -2,74 +2,27 @@
  * api/result/[id].js — GET /api/result/:id
  *
  * Возвращает сохранённый ответ LLM по ID.
- * Поддерживает как JSON (для плагина), так и HTML (для браузера).
+ * Поддерживает JSON (для плагина) и HTML (для браузера).
  */
-
-const fs   = require('fs');
+ 
+const fs = require('fs');
 const path = require('path');
-
+ 
 const LOG_DIR = '/tmp/pixso-logs';
-
+ 
 function setCorsHeaders(res) {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
-
-module.exports = async function handler(req, res) {
-  setCorsHeaders(res);
-
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'GET')    return res.status(405).json({ error: 'Method not allowed' });
-
-  const { id } = req.query;
-
-  // Валидация ID (только UUID формат, защита от path traversal)
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!id || !uuidRegex.test(id)) {
-    return res.status(400).json({ error: 'Invalid id format' });
-  }
-
-  const filePath = path.join(LOG_DIR, `${id}.json`);
-
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({
-      error: 'Result not found',
-      hint:  'Vercel /tmp сбрасывается при cold start. Если сервер перезапускался — результат не сохранился.',
-    });
-  }
-
-  let record;
-  try {
-    record = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch (_) {
-    return res.status(500).json({ error: 'Failed to read result' });
-  }
-
-  // Если запрос из браузера — возвращаем HTML-страницу с ответом
-  const acceptHtml = (req.headers['accept'] || '').includes('text/html');
-  if (acceptHtml) {
-    const html = buildHtmlPage(record);
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    return res.status(200).send(html);
-  }
-
-  // Иначе — JSON для плагина или API-клиентов
-  return res.status(200).json({
-    id:            record.id,
-    createdAt:     record.createdAt,
-    pageName:      record.pageName,
-    charCount:     record.charCount,
-    nodeCount:     record.nodeCount,
-    agentResponse: record.agentResponse,
-  });
-};
-
+ 
 function buildHtmlPage(record) {
   const date = new Date(record.createdAt).toLocaleString('ru-RU');
-  const escape = s => String(s || '')
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
+  const escape = (s) => String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+ 
   return `<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -118,7 +71,7 @@ function buildHtmlPage(record) {
     </div>
     <div class="meta-item">
       <div class="meta-label">Нод</div>
-      <div class="meta-value">${record.nodeCount || '—'}</div>
+      <div class="meta-value">${record.nodeCount ?? '—'}</div>
     </div>
   </div>
   <div class="body">
@@ -130,3 +83,45 @@ function buildHtmlPage(record) {
 </body>
 </html>`;
 }
+ 
+module.exports = async function handler(req, res) {
+  setCorsHeaders(res);
+ 
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+ 
+  const { id } = req.query;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!id || !uuidRegex.test(id)) return res.status(400).json({ error: 'Invalid id format' });
+ 
+  const filePath = path.join(LOG_DIR, `${id}.json`);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({
+      error: 'Result not found',
+      hint: 'Vercel /tmp сбрасывается при cold start. Если сервер перезапускался — результат не сохранился.',
+    });
+  }
+ 
+  let record;
+  try {
+    record = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (_) {
+    return res.status(500).json({ error: 'Failed to read result' });
+  }
+ 
+  const acceptHtml = (req.headers['accept'] || '').includes('text/html');
+  if (acceptHtml) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(buildHtmlPage(record));
+  }
+ 
+  return res.status(200).json({
+    id: record.id,
+    createdAt: record.createdAt,
+    pageName: record.pageName,
+    charCount: record.charCount,
+    nodeCount: record.nodeCount,
+    agentResponse: record.agentResponse,
+  });
+};
+
