@@ -276,9 +276,19 @@
 </div>
 
 <script>
+// ════════════════════════════════════════════════════════════════════════════
+// ▼▼▼  КОНФИГУРАЦИЯ СЕРВЕРА — менять только здесь  ▼▼▼
+// ════════════════════════════════════════════════════════════════════════════
+const SERVER_URL = 'https://YOUR-PROJECT.vercel.app';
+// Примеры:
+//   const SERVER_URL = 'https://pixso-design-inspector.vercel.app'; // продакшн
+//   const SERVER_URL = 'http://localhost:3000';                    // локально (vercel dev)
+// ════════════════════════════════════════════════════════════════════════════
+
 // ─── Состояние ────────────────────────────────────────────────────────────────
 let currentJson = null;
 let isBusy = false;
+let lastResultUrl = null;
 
 // ─── Утилиты ──────────────────────────────────────────────────────────────────
 
@@ -335,6 +345,9 @@ function showResults(json, nodeCount, source) {
       </svg>
       Проверить снова
     </button>
+    <button class="btn btn-secondary" id="btnSend" onclick="sendToServer()">
+      Отправить на сервер и анализировать
+    </button>
     <button class="btn btn-secondary" id="btnCopy" onclick="copyToClipboard()">
       <svg class="icon" viewBox="0 0 16 16" fill="none">
         <rect x="5.5" y="5.5" width="8" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
@@ -343,6 +356,21 @@ function showResults(json, nodeCount, source) {
       Скопировать JSON в буфер
     </button>
   `;
+
+  // Блок ответа сервера (создаём один раз)
+  if (!document.getElementById('serverResult')) {
+    const sr = document.createElement('div');
+    sr.id = 'serverResult';
+    sr.style.display = 'none';
+    sr.style.marginTop = '10px';
+    sr.style.padding = '10px 12px';
+    sr.style.border = '1px solid #444';
+    sr.style.borderRadius = '8px';
+    sr.style.background = '#2a2a2a';
+    sr.style.whiteSpace = 'pre-wrap';
+    sr.style.wordBreak = 'break-word';
+    group.parentNode.insertBefore(sr, group.nextSibling);
+  }
 
   if (isBusy) setBusy(false);
 }
@@ -410,6 +438,61 @@ async function copyToClipboard() {
       setStatus('Ошибка копирования: ' + e.message, 'error');
     }
   }
+}
+
+async function sendToServer() {
+  if (!currentJson || isBusy) return;
+
+  if (SERVER_URL.includes('YOUR-PROJECT')) {
+    setStatus('Укажите SERVER_URL в ui.html (в начале скрипта)', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btnSend');
+  const sr = document.getElementById('serverResult');
+
+  btn.disabled = true;
+  btn.textContent = 'Отправляю...';
+  setStatus('Отправляю JSON на сервер...', 'loading');
+  lastResultUrl = null;
+  sr.style.display = 'none';
+
+  try {
+    const response = await fetch(SERVER_URL + '/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: currentJson,
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error('Сервер вернул ' + response.status + ': ' + errText.slice(0, 200));
+    }
+
+    const data = await response.json();
+    lastResultUrl = data.resultUrl || null;
+
+    setStatus('Ответ агента получен — показываю в окне плагина.', 'success');
+    sr.style.display = 'block';
+    sr.innerHTML =
+      (data.agentResponse ? escapeHtml(data.agentResponse) : '(пустой ответ)') +
+      (lastResultUrl ? `\n\nСсылка для проверки: ${escapeHtml(lastResultUrl)}` : '');
+
+    btn.disabled = false;
+    btn.textContent = 'Отправить снова';
+  } catch (err) {
+    setStatus('Ошибка отправки: ' + err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Отправить на сервер и анализировать';
+  }
+}
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
 }
 
 function closePlugin() {
