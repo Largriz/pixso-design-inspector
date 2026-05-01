@@ -4,7 +4,8 @@
  * Экспортирует:
  *   ask(jsonString: string) => Promise<string>
  *
- * По умолчанию включена заглушка. Для GigaChat переключите экспорт внизу файла.
+ * По умолчанию включена заглушка. Если заданы переменные окружения GigaChat —
+ * используем реальный вызов GigaChat на сервере (ключи на сервере, не в плагине).
  */
  
 // ══════════════════════════════════════════════════════════════════════════════
@@ -44,8 +45,7 @@ async function askStub(jsonString) {
 // Дополнительно (только для тестов / self-signed CA):
 //   GIGACHAT_INSECURE_TLS=true
 // ══════════════════════════════════════════════════════════════════════════════
- 
-/*
+
 const crypto = require('crypto');
 const https = require('https');
  
@@ -115,10 +115,18 @@ async function askGigaChat(jsonString) {
     ? jsonString.slice(0, 40_000) + '\n... [обрезано]'
     : jsonString;
  
-  const prompt =
-    'Ты — ассистент, который анализирует JSON дизайн-макета из Pixso.\n' +
-    'Сделай краткий вывод по структуре и потенциальным проблемам UI.\n\n' +
-    truncated;
+  const prompt = [
+    'Ты — ассистент, который анализирует JSON дизайн-макета из Pixso.',
+    'На входе структура: _meta и дерево nodes.',
+    '',
+    'Задача:',
+    '- Кратко (до 15 пунктов) опиши, что находится в макете.',
+    '- Найди потенциальные проблемы UX/манипуляции (скрытый текст, низкая читаемость, мелкие элементы, неочевидные ссылки).',
+    '- Выдай итог в формате: "Краткое описание", "Риски", "Рекомендации".',
+    '',
+    'JSON:',
+    truncated,
+  ].join('\n');
  
   const agent = buildHttpsAgent();
   const controller = new AbortController();
@@ -153,12 +161,19 @@ async function askGigaChat(jsonString) {
     clearTimeout(timeout);
   }
 }
-*/
  
 // ══════════════════════════════════════════════════════════════════════════════
 // ЭКСПОРТ — меняйте только эту строку при смене агента
 // ══════════════════════════════════════════════════════════════════════════════
  
-module.exports = { ask: askStub };
-// module.exports = { ask: askGigaChat };
+function hasGigaChatEnv() {
+  return Boolean(process.env.GIGACHAT_CLIENT_ID && process.env.GIGACHAT_CLIENT_SECRET);
+}
+
+module.exports = {
+  ask: async (jsonString) => {
+    if (!hasGigaChatEnv()) return await askStub(jsonString);
+    return await askGigaChat(jsonString);
+  },
+};
 
