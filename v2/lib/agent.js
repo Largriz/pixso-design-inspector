@@ -4,12 +4,20 @@
  * Экспортирует:
  *   ask(jsonString: string) => Promise<string>
  *
- * По умолчанию включена заглушка. Если заданы переменные окружения GigaChat —
- * используем реальный вызов GigaChat на сервере (ключи на сервере, не в плагине).
+ * Поведение:
+ * - Если заданы GIGACHAT_CLIENT_ID и GIGACHAT_CLIENT_SECRET — вызываем GigaChat на сервере.
+ * - Иначе — безопасная заглушка (для локальной разработки без ключей).
+ *
+ * Важно: ключи должны быть только в переменных окружения Vercel, не в плагине.
  */
  
+const crypto = require('crypto');
+const https = require('https');
+const zlib = require('zlib');
+const { URL } = require('url');
+ 
 // ══════════════════════════════════════════════════════════════════════════════
-// ЗАГЛУШКА (активна по умолчанию)
+// ЗАГЛУШКА
 // ══════════════════════════════════════════════════════════════════════════════
  
 async function askStub(jsonString) {
@@ -38,32 +46,100 @@ async function askStub(jsonString) {
 }
  
 // ══════════════════════════════════════════════════════════════════════════════
-// GIGACHAT (опционально)
-// Нужны env:
+// GIGACHAT
+// Env:
 //   GIGACHAT_CLIENT_ID
 //   GIGACHAT_CLIENT_SECRET
-// Дополнительно (только для тестов / self-signed CA):
+//
+// Опционально (только для диагностики TLS; небезопасно для прода):
 //   GIGACHAT_INSECURE_TLS=true
+//
+// Корпоративный контур (если нужен прокси):
+//   HTTPS_PROXY / HTTP_PROXY
 // ══════════════════════════════════════════════════════════════════════════════
-
-const crypto = require('crypto');
-const https = require('https');
+ 
+function hasGigaChatEnv() {
+  return Boolean(process.env.GIGACHAT_CLIENT_ID && process.env.GIGACHAT_CLIENT_SECRET);
+}
+ 
+function buildHttpsAgent() {
+  if (String(process.env.GIGACHAT_INSECURE_TLS || '').toLowerCase() === 'true') {
+    return new https.Agent({ rejectUnauthorized: false, keepAlive: true });
+  }
+  return new https.Agent({ keepAlive: true });
+}
+ 
+function maybeDecompress(buffer, encoding) {
+  const enc = String(encoding || '').toLowerCase();
+  if (enc.includes('br')) return zlib.brotliDecompressSync(buffer);
+  if (enc.includes('gzip')) return zlib.gunzipSync(buffer);
+  if (enc.includes('deflate')) return zlib.inflateSync(buffer);
+  return buffer;
+}
+ 
+function httpsRequestJson({ method, url, headers, body }) {
+  const u = new URL(url);
+  const agent = buildHttpsAgent();
+ 
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        protocol: u.protocol,
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        method,
+        agent,
+        headers: {
+          'User-Agent': 'pixso-design-inspector/1.0',
+          'Connection': 'keep-alive',
+          ...headers,
+        },
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          try {
+            const raw = Buffer.concat(chunks);
+            const buf = maybeDecompress(raw, res.headers['content-encoding']);
+            const text = buf.toString('utf8');
+ 
+            const status = res.statusCode || 0;
+            const contentType = String(res.headers['content-type'] || '');
+ 
+            let json = null;
+            if (contentType.includes('application/json')) {
+              json = JSON.parse(text);
+            } else {
+              // иногда JSON приходит без корректного content-type
+              try { json = JSON.parse(text); } catch (_) {}
+            }
+ 
+            resolve({ status, headers: res.headers, text, json });
+          } catch (e) {
+            reject(e);
+          }
+        });
+      }
+    );
+ 
+    req.on('error', reject);
+    req.setTimeout(25_000, () => {
+      req.destroy(new Error('Request timeout'));
+    });
+ 
+    if (body) req.write(body);
+    req.end();
+  });
+}
  
 let cachedToken = null;
 let cachedTokenExpiresAtMs = 0;
  
-function buildHttpsAgent() {
-  if (String(process.env.GIGACHAT_INSECURE_TLS || '').toLowerCase() === 'true') {
-    return new https.Agent({ rejectUnauthorized: false });
-  }
-  return undefined;
-}
- 
 async function getGigaChatToken() {
   const now = Date.now();
-  if (cachedToken && cachedTokenExpiresAtMs - now > 15_000) {
-    return cachedToken;
-  }
+  if (cachedToken && cachedTokenExpiresAtMs - now > 15_000) return cachedToken;
  
   const clientId = process.env.GIGACHAT_CLIENT_ID;
   const clientSecret = process.env.GIGACHAT_CLIENT_SECRET;
@@ -72,40 +148,28 @@ async function getGigaChatToken() {
   }
  
   const credentials = Buffer.from(clientId + ':' + clientSecret).toString('base64');
-  const agent = buildHttpsAgent();
  
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
+  const { status, text, json } = await httpsRequestJson({
+    method: 'POST',
+    url: 'https://ngw.devices.sberbank.ru:9443/api/v2/oauth',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Accept': 'application/json',
+      'Authorization': 'Basic ' + credentials,
+      'RqUID': crypto.randomUUID(),
+      'Accept-Encoding': 'gzip, deflate, br',
+    },
+    body: 'scope=GIGACHAT_API_PERS',
+  });
  
-  try {
-    const res = await fetch('https://ngw.devices.sberbank.ru:9443/api/v2/oauth', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/json',
-        'Authorization': 'Basic ' + credentials,
-        'RqUID': crypto.randomUUID(),
-      },
-      body: 'scope=GIGACHAT_API_PERS',
-      ...(agent ? { agent } : {}),
-      signal: controller.signal,
-    });
- 
-    if (!res.ok) {
-      const err = await res.text().catch(() => '');
-      throw new Error('GigaChat OAuth failed: ' + res.status + (err ? ' ' + err : ''));
-    }
- 
-    const data = await res.json();
-    cachedToken = data.access_token;
- 
-    const expiresInSec = Number(data.expires_in || 0);
-    cachedTokenExpiresAtMs = Date.now() + (expiresInSec > 0 ? expiresInSec * 1000 : 60_000);
- 
-    return cachedToken;
-  } finally {
-    clearTimeout(timeout);
+  if (!json || status < 200 || status >= 300) {
+    throw new Error('GigaChat OAuth failed: ' + status + ' ' + (text || '').slice(0, 500));
   }
+ 
+  cachedToken = json.access_token;
+  const expiresInSec = Number(json.expires_in || 0);
+  cachedTokenExpiresAtMs = Date.now() + (expiresInSec > 0 ? expiresInSec * 1000 : 60_000);
+  return cachedToken;
 }
  
 async function askGigaChat(jsonString) {
@@ -128,52 +192,45 @@ async function askGigaChat(jsonString) {
     truncated,
   ].join('\n');
  
-  const agent = buildHttpsAgent();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25_000);
+  const payload = JSON.stringify({
+    model: 'GigaChat',
+    max_tokens: 800,
+    temperature: 0.2,
+    messages: [{ role: 'user', content: prompt }],
+  });
  
-  try {
-    const res = await fetch('https://gigachat.devices.sberbank.ru/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': 'Bearer ' + token,
-      },
-      body: JSON.stringify({
-        model: 'GigaChat',
-        max_tokens: 800,
-        temperature: 0.2,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      ...(agent ? { agent } : {}),
-      signal: controller.signal,
-    });
+  const { status, text, json } = await httpsRequestJson({
+    method: 'POST',
+    url: 'https://gigachat.devices.sberbank.ru/api/v1/chat/completions',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Authorization': 'Bearer ' + token,
+      'Accept-Encoding': 'gzip, deflate, br',
+    },
+    body: payload,
+  });
  
-    if (!res.ok) {
-      const err = await res.text().catch(() => '');
-      throw new Error('GigaChat API error ' + res.status + ': ' + err);
-    }
- 
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || '(пустой ответ)';
-  } finally {
-    clearTimeout(timeout);
+  if (!json || status < 200 || status >= 300) {
+    throw new Error('GigaChat API error ' + status + ': ' + (text || '').slice(0, 800));
   }
+ 
+  return json.choices?.[0]?.message?.content || '(пустой ответ)';
 }
  
-// ══════════════════════════════════════════════════════════════════════════════
-// ЭКСПОРТ — меняйте только эту строку при смене агента
-// ══════════════════════════════════════════════════════════════════════════════
- 
-function hasGigaChatEnv() {
-  return Boolean(process.env.GIGACHAT_CLIENT_ID && process.env.GIGACHAT_CLIENT_SECRET);
-}
-
 module.exports = {
   ask: async (jsonString) => {
     if (!hasGigaChatEnv()) return await askStub(jsonString);
-    return await askGigaChat(jsonString);
+    try {
+      return await askGigaChat(jsonString);
+    } catch (e) {
+      const msg = e && e.message ? e.message : String(e);
+      // Добавляем подсказку для самой частой причины на Vercel
+      const hint =
+        'Если ошибка про certificate/TLS/UNABLE_TO_VERIFY_LEAF_SIGNATURE — нужен корпоративный CA ' +
+        'или временная диагностика через GIGACHAT_INSECURE_TLS=true (только для теста).';
+      throw new Error(msg + '\n' + hint);
+    }
   },
 };
 
