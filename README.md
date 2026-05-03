@@ -1,212 +1,160 @@
-# Design Inspector — Pixso Plugin (Шаг 1)
+# Design Inspector — Pixso Plugin + LLM‑сервер (документация для ИТ)
 
-## Структура файлов
-
-```
-pixso-plugin/
-├── manifest.json   — конфигурация плагина
-├── sandbox.js      — логика обхода нод, сборка JSON
-├── ui.html         — интерфейс с кнопкой «Проверить»
-└── README.md       — этот файл
-```
+Этот документ описывает **как устроен инструмент**, **какая архитектура и требования** нужны для работы, и **что важно учесть при развёртывании/адаптации** под корпоративные политики.
 
 ---
 
-## Установка
+## 1) Принцип работы (подробно)
 
-### Вариант A — локальная разработка (Pixso Desktop)
-1. Открыть Pixso Desktop
-2. Главное меню → **Плагины** → **Разработка** → **Импортировать плагин из файла**
-3. Выбрать файл `manifest.json` из этой папки
-4. Плагин появится в меню: **Плагины** → **Design Inspector**
+### Назначение
+Инструмент состоит из двух частей:
+- **Плагин Pixso** (локальный код в репозитории: `manifest.json`, `sandbox.js`, `ui.html`) — собирает структуру макета в JSON и показывает результат пользователю.
+- **Сервер** (каталог `v2/`) — принимает JSON, передаёт его в **LLM‑агент**, агент формирует запрос к **GigaChat**, получает текстовый ответ и возвращает его клиенту.
 
-### Вариант B — через Pixso Web
-В веб-версии локальные плагины работают аналогично:
-Меню → Плагины → Разработка → Добавить локальный плагин → `manifest.json`
+Ключевой принцип безопасности: **секреты GigaChat хранятся только на сервере** (переменные окружения/secret store). Плагин **не содержит** client id/secret.
+
+### Поток данных (end‑to‑end)
+1. Пользователь в Pixso запускает плагин.
+2. Плагин в `sandbox.js` обходит выбранные ноды (или верхнеуровневые фреймы страницы) и сериализует их в JSON.
+3. `ui.html` отправляет JSON на сервер:
+   - `POST /api/analyze`
+   - `Content-Type: application/json`
+   - тело запроса — **сырой JSON‑текст** (строка), как сформировал плагин.
+4. Сервер (`v2/api/analyze.js`):
+   - валидирует, что тело — корректный JSON;
+   - вызывает `v2/lib/agent.js` → функция `ask(jsonString)`;
+   - сохраняет запись результата (в текущей реализации — в `/tmp`, см. ограничения ниже);
+   - возвращает клиенту JSON, где есть:
+     - `agentResponse` — **готовый текст** для пользователя;
+     - `resultUrl` — ссылка для ручной проверки сохранённого результата (опционально).
+5. `ui.html` показывает `agentResponse` пользователю.
+
+### Что означает “агент сейчас простой, потом заменим”
+`v2/lib/agent.js` — это **точка расширения**: сюда добавляют:
+- другие модели/endpoint’ы,
+- многошаговые сценарии,
+- RAG/инструменты,
+- строгую валидацию входного JSON,
+- форматирование ответа под регламенты организации.
+
+С точки зрения плагина контракт простой: **на вход строка JSON**, **на выход строка текста**.
 
 ---
 
-## Как пользоваться
+## 2) Архитектура и требования для работы
 
-1. Откройте дизайн-файл в Pixso
-2. **Опционально:** выделите нужные объекты (фреймы, группы, компоненты)
-3. Запустите плагин через меню Плагины → Design Inspector
-4. Нажмите кнопку **«Проверить»**
-5. Дождитесь завершения анализа
-6. Нажмите **«Скопировать JSON в буфер»**
+### Компоненты и границы ответственности
+- **Pixso / браузерный UI плагина** (`ui.html`):
+  - только пользовательский интерфейс и `fetch` наружу на ваш сервер;
+  - не хранит секреты GigaChat.
+- **Backend API** (`v2/api/*`):
+  - принимает JSON;
+  - orchestration: логирование, лимиты, авторизация (если добавите), хранение результата;
+  - вызывает агент.
+- **LLM‑агент** (`v2/lib/agent.js`):
+  - инкапсулирует вызовы к GigaChat;
+  - место для будущей “замены агента”.
 
-**Логика выбора нод:**
-- Если что-то выделено → анализируется только выделение
-- Если ничего не выделено → анализируются все фреймы верхнего уровня на текущей странице
+### Сетевая схема
 
----
-
-## Структура JSON на выходе
-
-```json
-{
-  "_meta": {
-    "exportedAt": "2025-01-15T10:30:00.000Z",
-    "pluginVersion": "1.0.0",
-    "pixsoApiVersion": "...",
-    "fileKey": "abc123",
-    "pageName": "Main",
-    "pageId": "0:1",
-    "source": "selection | page",
-    "nodeCount": 5
-  },
-
-  "localStyles": {
-    "paint":  [ { "id": "...", "name": "Primary/Blue", "paints": [...] } ],
-    "text":   [ { "id": "...", "name": "H1/Regular", "fontSize": 32, "fontName": {...} } ],
-    "effect": [ { "id": "...", "name": "Shadow/Card", "effects": [...] } ],
-    "grid":   [ { "id": "...", "name": "Layout/12col" } ]
-  },
-
-  "nodes": [
-    {
-      "id": "10:5",
-      "name": "Card",
-      "type": "FRAME",
-      "visible": true,
-      "locked": false,
-
-      "position": {
-        "x": 100,          "y": 200,
-        "absoluteX": 100,  "absoluteY": 200
-      },
-      "size": { "width": 375, "height": 812 },
-
-      "rotation": 0,
-      "opacity": 1,
-      "layerIndex": 2,
-      "layerDepth": 0,
-      "blendMode": "NORMAL",
-      "isMask": false,
-
-      "fills": [
-        {
-          "type": "SOLID",
-          "opacity": 1,
-          "visible": true,
-          "color": { "r": 255, "g": 255, "b": 255, "a": 1, "hex": "#ffffff" }
-        }
-      ],
-
-      "strokes": {
-        "paints": [],
-        "weight": 0,
-        "align": "INSIDE",
-        "dashPattern": []
-      },
-
-      "effects": [
-        {
-          "type": "DROP_SHADOW",
-          "visible": true,
-          "color": { "r": 0, "g": 0, "b": 0, "a": 0.15, "hex": "#000000" },
-          "offset": { "x": 0, "y": 4 },
-          "radius": 12,
-          "spread": 0
-        }
-      ],
-
-      "cornerRadius": 16,
-
-      "constraints": {
-        "horizontal": "STRETCH",
-        "vertical": "TOP"
-      },
-
-      "autoLayout": {
-        "mode": "VERTICAL",
-        "paddingTop": 16, "paddingBottom": 16,
-        "paddingLeft": 16, "paddingRight": 16,
-        "itemSpacing": 12,
-        "primaryAxisAlignItems": "MIN",
-        "counterAxisAlignItems": "MIN"
-      },
-
-      "text": null,
-
-      "component": null,
-
-      "prototypeLinks": [
-        {
-          "trigger": { "type": "ON_CLICK", "delay": null, "keyCode": null },
-          "action": { "type": "NODE" },
-          "targetNodeId": "20:5",
-          "targetNodeName": "Detail Screen",
-          "transition": {
-            "type": "SMART_ANIMATE",
-            "duration": 300,
-            "easing": "EASE_OUT"
-          }
-        }
-      ],
-
-      "styles": {
-        "fill":   { "id": "S:abc", "name": "Background/White" },
-        "effect": { "id": "S:def", "name": "Shadow/Card" }
-      },
-
-      "clipsContent": true,
-      "layoutGrids": [],
-
-      "children": [
-        {
-          "id": "10:6",
-          "name": "Title",
-          "type": "TEXT",
-          "text": {
-            "content": "Привет, мир",
-            "fontSize": 24,
-            "fontName": { "family": "Inter", "style": "Bold" },
-            "textAlign": "LEFT",
-            "textAlignVertical": "TOP",
-            "letterSpacing": { "unit": "PERCENT", "value": -1 },
-            "lineHeight": { "unit": "AUTO" },
-            "textDecoration": "NONE",
-            "textCase": "ORIGINAL",
-            "styledSegments": null
-          },
-          "children": []
-        }
-      ]
-    }
-  ]
-}
+```mermaid
+flowchart LR
+  U[Пользователь] --> PX[Pixso]
+  PX --> PL[Plugin UI ui.html]
+  PL -->|HTTPS POST /api/analyze JSON| API[Backend v2/api/analyze.js]
+  API --> AG[Agent v2/lib/agent.js]
+  AG -->|HTTPS OAuth| NGW[ngw.devices.sberbank.ru]
+  AG -->|HTTPS API| GC[gigachat.devices.sberbank.ru]
+  API -->|опционально: сохранение| ST[(Ephemeral /tmp или постоянное хранилище)]
+  PL -->|опционально: GET /api/result/:id| API
 ```
 
+### Минимальные требования к среде исполнения сервера
+- **Node.js 18+** (на Vercel это обычно выполняется автоматически).
+- **Исходящий HTTPS** с сервера до:
+  - `https://ngw.devices.sberbank.ru:9443/api/v2/oauth`
+  - `https://gigachat.devices.sberbank.ru/api/v1/chat/completions`
+- **DNS** должен резолвить эти имена (или быть настроен корпоративный DNS/прокси‑маршрут).
+- **Секреты** должны быть доступны процессу как переменные окружения:
+  - `GIGACHAT_CLIENT_ID`
+  - `GIGACHAT_CLIENT_SECRET`
+
+### TLS / корпоративный контур (критично)
+В корпоративных сетях часто встречается:
+- TLS‑инспекция (MITM) на исходящем трафике,
+- корпоративный CA, который **не доверен** “из коробки” Node.js.
+
+Типовой симптом: ошибки TLS вида **`self-signed certificate in certificate chain`**.
+
+Политика для продакшена:
+- **нельзя** оставлять отключение проверки TLS как постоянное решение;
+- нужно обеспечить **доверие к корпоративному CA** на стороне runtime (или убрать MITM для конкретного маршрута согласованно с ИБ).
+
+Для диагностики (временно) в коде предусмотрен флаг:
+- `GIGACHAT_INSECURE_TLS=true`  
+Он отключает проверку TLS и полезен только чтобы подтвердить диагноз.
+
+### CORS
+Плагин работает в iframe и может иметь “необычный” origin. В `v2/vercel.json` включён `Access-Control-Allow-Origin: *` для `/api/*`.
+
+Для корпоративного контура обычно ужесточают:
+- ограничение origin,
+- добавление заголовков авторизации (например API‑key),
+- WAF/Rate limit на edge.
+
+### Хранение результата (важно для ИТ)
+Текущая реализация может сохранять отладочную запись в `/tmp` на serverless.
+
+Ограничения:
+- `/tmp` **эфемерный** (может исчезнуть при cold start),
+- не подходит как “источник правды”.
+
+Для организации обычно требуется:
+- Object Storage / DB / корпоративный журнал,
+- политика retention,
+- маскирование/запрет сохранения полного JSON (если это персональные/чувствительные данные).
+
+### Производительность и лимиты
+- JSON может быть **очень большим** (даже “одна нода” может быть огромным фреймом с деревом детей).
+- Нужны лимиты:
+  - на размер тела запроса (reverse proxy / API gateway),
+  - на время выполнения функции (Vercel `maxDuration` в `vercel.json`),
+  - на длину промпта/токены (в `agent.js`).
+
 ---
 
-## Поле `prototypeLinks` — детали
+## 3) Полезная информация для ИТ: развёртывание и адаптация под требования организации
 
-Заполняется через `node.reactions` (Plugin API, без REST API).
+### Развёртывание на Vercel (минимальный чек‑лист)
+- **Root Directory**: `v2` (иначе не подхватятся `vercel.json` и `api/*`).
+- **Environment Variables** (Project, не “глобально случайно”):
+  - `GIGACHAT_CLIENT_ID`
+  - `GIGACHAT_CLIENT_SECRET`
+- После изменения переменных: **Redeploy**.
 
-| Поле | Описание |
-|---|---|
-| `trigger.type` | `ON_CLICK`, `ON_HOVER`, `ON_PRESS`, `MOUSE_ENTER`, `MOUSE_LEAVE`, `DELAY`, `KEY_DOWN` |
-| `action.type` | `NODE` (переход к ноде), `URL` (внешняя ссылка), `BACK`, `CLOSE` |
-| `targetNodeId` | ID целевой ноды (если action=NODE) |
-| `targetNodeName` | Имя целевой ноды (резолвится через `pixso.getNodeById`) |
-| `transition.type` | `DISSOLVE`, `SMART_ANIMATE`, `MOVE_IN`, `MOVE_OUT`, `PUSH`, `SLIDE_IN`, `SLIDE_OUT` |
+### Контракт API (для интеграций/тестов)
+- `POST /api/analyze`
+  - body: JSON‑строка (сырой JSON)
+  - response: JSON с `agentResponse` и `resultUrl` (если включено сохранение)
+- `GET /api/result/:id`
+  - возвращает JSON или HTML (если `Accept` содержит `text/html`)
 
----
+### Где менять “поведение LLM”
+- **`v2/lib/agent.js`**: промпт, модель, параметры `temperature/max_tokens`, усечение входного JSON, ретраи, таймауты, логирование.
+- **`v2/api/analyze.js`**: политика хранения (`inputJson` в логах), лимиты, аутентификация, маскирование, корреляционные id.
 
-## Совместимость
+### Типовые корпоративные доработки (ожидаемые)
+- **Аутентификация** вызова `/api/analyze` (API‑key/JWT/mTLS) + согласование CORS.
+- **PII/Compliance**: не сохранять полный JSON, redact текста, отдельный audit trail.
+- **Наблюдаемость**: структурные логи, трассировка, алерты по 5xx/latency.
+- **Надёжность**: очередь задач (если анализ долгий), idempotency key, DLQ.
+- **Корпоративный GigaChat**: отдельные endpoint’ы/scope/модель — всё это меняется в `agent.js`.
 
-| Версия Pixso | Статус |
-|---|---|
-| 2.2.4 | ✅ Полная поддержка |
-| 1.3.x | ✅ Поддержка (без `layoutWrap`, `counterAxisSpacing` если API < 1.0) |
+### Минимальный список вопросов к ИБ/сетевым инженерам
+- Нужен ли **явный прокси** для исходящего HTTPS?
+- Есть ли **TLS inspection** и какой **CA bundle** официально выдан для доверия приложениям?
+- Разрешены ли исходящие соединения к `*.sberbank.ru` с выбранной площадки хостинга?
+- Какие требования к **хранению** артефактов анализа (срок, шифрование, география)?
 
-Плагин совместим с Figma-плагинами (Pixso поддерживает импорт Figma-плагинов).
-
----
-
-## Следующие шаги
-
-- **Шаг 2:** Backend-сервер принимает этот JSON через `POST /save-json`
-- **Шаг 3:** LLM-агент обрабатывает JSON через GigaChat
-- **Шаг 4:** Ответ возвращается в плагин и показывается в модальном окне
+### Репозиторий (ориентир)
+Исходный репозиторий проекта: `https://github.com/Largriz/pixso-design-inspector`
