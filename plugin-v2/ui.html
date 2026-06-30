@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design Inspector v2</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #1e1e1e;
+    --bg2: #2a2a2a;
+    --bg3: #333;
+    --border: #444;
+    --text: #e8e8e8;
+    --text2: #aaa;
+    --accent: #7C6CF2;
+    --accent-hover: #9588f5;
+    --success: #4caf7d;
+    --error: #e05c5c;
+    --radius: 8px;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.5;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .header h1 { font-size: 15px; font-weight: 600; }
+  .header p { color: var(--text2); font-size: 11.5px; margin-top: 3px; }
+
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    min-height: 40px;
+    font-size: 12px;
+    color: var(--text2);
+  }
+  .status-bar.success { border-color: var(--success); background: rgba(76,175,125,.08); color: var(--success); }
+  .status-bar.error   { border-color: var(--error);   background: rgba(224,92,92,.08);  color: var(--error); }
+  .status-bar.loading { border-color: var(--accent);  background: rgba(124,108,242,.08); color: var(--accent); }
+
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+  .status-dot.spin {
+    background: transparent;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .info-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+  }
+  .info-card .label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: .6px; }
+  .info-card .value { font-size: 18px; font-weight: 600; margin-top: 3px; }
+  .info-card .value.small { font-size: 13px; font-weight: 500; margin-top: 4px; }
+
+  .hint {
+    font-size: 11.5px;
+    color: var(--text2);
+    padding: 10px 12px;
+    background: var(--bg2);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    line-height: 1.55;
+  }
+
+  .btn-group { display: flex; flex-direction: column; gap: 8px; }
+
+  .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 11px 16px;
+    border-radius: var(--radius);
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background .15s, opacity .15s;
+    font-family: var(--font);
+  }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-secondary { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover:not(:disabled) { background: #3d3d3d; }
+  .btn-success { background: rgba(76,175,125,.15); color: var(--success); border: 1px solid rgba(76,175,125,.3); }
+
+  .footer {
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .footer-note { font-size: 10.5px; color: var(--text2); }
+  .close-btn {
+    background: none; border: none; color: var(--text2);
+    cursor: pointer; font-size: 11.5px; padding: 4px 8px;
+    border-radius: 4px; font-family: var(--font);
+  }
+  .close-btn:hover { background: var(--bg3); color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Design Inspector v2</h1>
+  <p>Ответ LLM открывается в отдельном окне браузера</p>
+</div>
+
+<div class="content" id="content">
+  <div class="status-bar" id="statusBar">
+    <span class="status-dot"></span>
+    <span id="statusText">Готов к работе. Нажмите «Проверить».</span>
+  </div>
+
+  <div class="hint">
+    Панель плагина остаётся компактной. После анализа результат GigaChat появится во
+    <strong>втором окне</strong> — его можно растянуть и скопировать текст целиком.
+  </div>
+
+  <div class="info-grid" id="infoGrid" style="display:none">
+    <div class="info-card">
+      <div class="label">Нод найдено</div>
+      <div class="value" id="nodeCount">—</div>
+    </div>
+    <div class="info-card">
+      <div class="label">Источник</div>
+      <div class="value small" id="sourceLabel">—</div>
+    </div>
+    <div class="info-card">
+      <div class="label">Размер JSON</div>
+      <div class="value small" id="jsonSize">—</div>
+    </div>
+    <div class="info-card">
+      <div class="label">Символов</div>
+      <div class="value" id="charCount">—</div>
+    </div>
+  </div>
+
+  <div class="btn-group" id="btnGroup">
+    <button class="btn btn-primary" id="btnInspect" onclick="startInspect()">Проверить</button>
+  </div>
+</div>
+
+<div class="footer">
+  <span class="footer-note">v2.0.0 · отдельное окно результата</span>
+  <button class="close-btn" onclick="closePlugin()">Закрыть</button>
+</div>
+
+<script>
+const SERVER_URL = 'https://pixso-design-inspector.vercel.app';
+
+const RESULT_WINDOW_NAME = 'DesignInspectorV2Result';
+const RESULT_WINDOW_FEATURES = 'width=760,height=720,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes';
+
+let currentJson = null;
+let isBusy = false;
+let resultWindow = null;
+let lastAgentResponse = null;
+let lastResultUrl = null;
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+}
+
+function formatNumber(n) {
+  return n.toLocaleString('ru-RU');
+}
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function setStatus(text, type) {
+  const bar = document.getElementById('statusBar');
+  const dot = bar.querySelector('.status-dot');
+  const label = document.getElementById('statusText');
+  bar.className = 'status-bar ' + (type || '');
+  dot.className = 'status-dot ' + (type === 'loading' ? 'spin' : '');
+  label.textContent = text;
+}
+
+function setBusy(busy) {
+  isBusy = busy;
+  const inspectBtn = document.getElementById('btnInspect');
+  if (inspectBtn) inspectBtn.disabled = busy;
+  const sendBtn = document.getElementById('btnSend');
+  if (sendBtn) sendBtn.disabled = busy;
+}
+
+function buildResultDocument({ state, bodyText, resultUrl, errorText }) {
+  const isLoading = state === 'loading';
+  const isError = state === 'error';
+  const title = isLoading
+    ? 'Анализ макета — загрузка'
+    : isError
+      ? 'Анализ макета — ошибка'
+      : 'Анализ макета — результат LLM';
+
+  const badgeClass = isLoading ? 'badge loading' : isError ? 'badge error' : 'badge success';
+  const badgeText = isLoading ? 'Ожидание ответа GigaChat…' : isError ? 'Ошибка' : 'Готово';
+
+  const mainContent = isError
+    ? '<pre class="error">' + escapeHtml(errorText || 'Неизвестная ошибка') + '</pre>'
+    : '<pre class="answer">' + escapeHtml(bodyText || '(пустой ответ)') + '</pre>';
+
+  const linkBlock = resultUrl
+    ? '<p class="link-row"><a href="' + escapeHtml(resultUrl) + '" target="_blank" rel="noopener">Открыть сохранённый результат на сервере</a></p>'
+    : '';
+
+  return '<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>' + escapeHtml(title) + '</title>' +
+    '<style>' +
+    'body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#141414;color:#ececec;}' +
+    '.wrap{max-width:920px;margin:0 auto;padding:24px 28px 40px;}' +
+    'h1{font-size:20px;font-weight:600;margin:0 0 8px;}' +
+    '.sub{color:#9a9a9a;font-size:13px;margin-bottom:20px;}' +
+    '.badge{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;margin-bottom:16px;}' +
+    '.badge.loading{background:rgba(124,108,242,.15);color:#b8adff;}' +
+    '.badge.success{background:rgba(76,175,125,.15);color:#6fd39a;}' +
+    '.badge.error{background:rgba(224,92,92,.15);color:#f08a8a;}' +
+    '.panel{background:#1f1f1f;border:1px solid #3a3a3a;border-radius:12px;overflow:hidden;}' +
+    'pre{margin:0;padding:18px 20px;white-space:pre-wrap;word-break:break-word;line-height:1.65;font-size:14px;}' +
+    'pre.answer{color:#e6e6e6;}' +
+    'pre.error{color:#f3a0a0;}' +
+    '.toolbar{display:flex;gap:10px;padding:12px 16px;border-bottom:1px solid #3a3a3a;background:#252525;}' +
+    'button{font:inherit;border:1px solid #4a4a4a;background:#333;color:#eee;border-radius:8px;padding:8px 12px;cursor:pointer;}' +
+    'button:hover{background:#3d3d3d;}' +
+    '.link-row{margin:14px 0 0;font-size:13px;}' +
+    'a{color:#9d8fff;}' +
+  '</style></head><body><div class="wrap">' +
+    '<h1>Design Inspector</h1>' +
+    '<p class="sub">Ответ языковой модели по макету Pixso</p>' +
+    '<span class="' + badgeClass + '">' + badgeText + '</span>' +
+    '<div class="panel">' +
+      (isLoading ? '' : '<div class="toolbar"><button type="button" onclick="copyAnswer()">Скопировать текст</button></div>') +
+      mainContent +
+    '</div>' +
+    linkBlock +
+    (isLoading ? '' : '<script>function copyAnswer(){var t=document.querySelector("pre.answer, pre.error");if(!t)return;navigator.clipboard.writeText(t.textContent).then(function(){alert("Скопировано в буфер обмена");}).catch(function(){alert("Не удалось скопировать");});}<\/script>') +
+  '</div></body></html>';
+}
+
+function renderResultWindow(options) {
+  if (!resultWindow || resultWindow.closed) return false;
+  resultWindow.document.open();
+  resultWindow.document.write(buildResultDocument(options));
+  resultWindow.document.close();
+  try { resultWindow.focus(); } catch (_) {}
+  return true;
+}
+
+function openResultWindow(state, bodyText, resultUrl, errorText) {
+  if (!resultWindow || resultWindow.closed) {
+    resultWindow = window.open('about:blank', RESULT_WINDOW_NAME, RESULT_WINDOW_FEATURES);
+  }
+  if (!resultWindow) {
+    return false;
+  }
+  renderResultWindow({ state, bodyText, resultUrl, errorText });
+  return true;
+}
+
+function showResults(json, nodeCount, source) {
+  currentJson = json;
+  const bytes = new TextEncoder().encode(json).length;
+
+  document.getElementById('infoGrid').style.display = 'grid';
+  document.getElementById('nodeCount').textContent = nodeCount;
+  document.getElementById('sourceLabel').textContent =
+    source === 'selection' ? 'Выделение' : 'Вся страница';
+  document.getElementById('jsonSize').textContent = formatBytes(bytes);
+  document.getElementById('charCount').textContent = formatNumber(json.length);
+
+  const group = document.getElementById('btnGroup');
+  group.innerHTML = `
+    <button class="btn btn-primary" id="btnInspect" onclick="startInspect()">Проверить снова</button>
+    <button class="btn btn-secondary" id="btnSend" onclick="sendToServer()">Отправить на сервер и анализировать</button>
+    <button class="btn btn-secondary" id="btnCopy" onclick="copyToClipboard()">Скопировать JSON</button>
+    <button class="btn btn-secondary" id="btnReopen" onclick="reopenResultWindow()" style="display:none">Открыть окно результата</button>
+  `;
+
+  if (isBusy) setBusy(false);
+}
+
+function startInspect() {
+  if (isBusy) return;
+  setBusy(true);
+  setStatus('Передаю запрос в sandbox...', 'loading');
+  currentJson = null;
+  document.getElementById('infoGrid').style.display = 'none';
+  parent.postMessage({ pluginMessage: { type: 'START_INSPECT' } }, '*');
+}
+
+async function copyToClipboard() {
+  if (!currentJson) return;
+  const btn = document.getElementById('btnCopy');
+  try {
+    await navigator.clipboard.writeText(currentJson);
+    btn.className = 'btn btn-success';
+    btn.textContent = 'JSON скопирован';
+    setTimeout(function() {
+      btn.className = 'btn btn-secondary';
+      btn.textContent = 'Скопировать JSON';
+    }, 2000);
+  } catch (err) {
+    setStatus('Ошибка копирования: ' + err.message, 'error');
+  }
+}
+
+function reopenResultWindow() {
+  if (!lastAgentResponse && !lastResultUrl) {
+    setStatus('Пока нет сохранённого ответа для показа', 'error');
+    return;
+  }
+  if (!openResultWindow('success', lastAgentResponse, lastResultUrl)) {
+    setStatus('Не удалось открыть окно — разрешите всплывающие окна для Pixso', 'error');
+    return;
+  }
+  setStatus('Окно результата открыто', 'success');
+}
+
+async function sendToServer() {
+  if (!currentJson || isBusy) return;
+
+  if (SERVER_URL.includes('YOUR-PROJECT')) {
+    setStatus('Укажите SERVER_URL в ui.html', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btnSend');
+  const reopenBtn = document.getElementById('btnReopen');
+
+  if (!openResultWindow('loading')) {
+    setStatus('Браузер заблокировал окно. Разрешите popup для Pixso и повторите.', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Отправляю...';
+  setStatus('Запрос отправлен — ждём ответ в отдельном окне…', 'loading');
+
+  try {
+    const response = await fetch(SERVER_URL + '/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: currentJson,
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error('Сервер вернул ' + response.status + ': ' + errText.slice(0, 300));
+    }
+
+    const data = await response.json();
+    lastAgentResponse = data.agentResponse || '';
+    lastResultUrl = data.resultUrl || null;
+
+    if (!renderResultWindow({
+      state: 'success',
+      bodyText: lastAgentResponse,
+      resultUrl: lastResultUrl
+    })) {
+      setStatus('Ответ получен, но окно было закрыто. Нажмите «Открыть окно результата».', 'success');
+    } else {
+      setStatus('Ответ получен — смотрите отдельное окно', 'success');
+    }
+
+    if (reopenBtn) reopenBtn.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Отправить снова';
+  } catch (err) {
+    lastAgentResponse = null;
+    lastResultUrl = null;
+    renderResultWindow({ state: 'error', errorText: err.message });
+    setStatus('Ошибка: ' + err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Отправить на сервер и анализировать';
+    if (reopenBtn) reopenBtn.style.display = 'none';
+  }
+}
+
+function closePlugin() {
+  parent.postMessage({ pluginMessage: { type: 'CLOSE' } }, '*');
+}
+
+window.onmessage = function(event) {
+  const msg = event.data.pluginMessage;
+  if (!msg) return;
+
+  switch (msg.type) {
+    case 'STATUS':
+      setStatus(msg.text, 'loading');
+      break;
+    case 'JSON_READY':
+      setStatus(
+        'Готово: ' + msg.nodeCount + ' нод(ы). Можно отправить на анализ.',
+        'success'
+      );
+      showResults(msg.json, msg.nodeCount, msg.source);
+      break;
+    case 'ERROR':
+      setStatus('Ошибка: ' + msg.text, 'error');
+      setBusy(false);
+      break;
+  }
+};
+</script>
+</body>
+</html>
