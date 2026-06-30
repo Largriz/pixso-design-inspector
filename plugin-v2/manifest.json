@@ -1,8 +1,0 @@
-{
-  "name": "Design Inspector v2",
-  "id": "design-inspector-002",
-  "api": "1.0.0",
-  "main": "sandbox.js",
-  "ui": "./ui.html",
-  "editorType": ["pixso", "dev"]
-}
