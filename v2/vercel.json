@@ -1,6 +1,9 @@
 {
   "version": 2,
   "name": "pixso-design-inspector",
+  "rewrites": [
+    { "source": "/", "destination": "/index.html" }
+  ],
   "functions": {
     "api/**/*.js": {
       "maxDuration": 30
